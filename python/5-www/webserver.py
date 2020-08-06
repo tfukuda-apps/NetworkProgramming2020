@@ -1,5 +1,13 @@
+# 
+# webserver.py
+#
+# 50000ポートでlistenし、
+# 接続してきたクライアントから受信したHTTP Requestに応じて
+# HTTP Responseを送信するプログラム
+#
 import socket
 import signal
+import myhttp
 
 # キーボードからの[ctrl]+[c]を非同期で受付
 signal.signal(signal.SIGINT, signal.SIG_DFL)
@@ -7,14 +15,8 @@ signal.signal(signal.SIGINT, signal.SIG_DFL)
 # 待受に使うIPアドレスとポート番号
 MY_ADDRESS = ""
 MY_PORT = 50000
-# 受信用バッファサイズ
-BUFSIZE = 1024
-# HTTP Response
-statusline = "HTTP/1.1 200 OK\r\n"
-blank_line = "\r\n"
-contents = "<!DOCTYPE html>\n<HTML><HEAD><META CHARSET='UTF-8'><BODY>"
-contents += "いいよ～"
-contents += "</BODY></HTML>"
+# ファイルの基準となるディレクトリ
+BASE_DIR = "."
 
 # ソケットを作成
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -27,17 +29,35 @@ while True:
     # 接続要求→受理
     sock_c, addr = sock.accept()
 
-    # HTTP Requestの受信
-    req = sock_c.recv(BUFSIZE)
-    print(req.decode("UTF-8"))
-
     try:
-        sock_c.sendall(statusline.encode("UTF-8"))
-        sock_c.sendall(blank_line.encode("UTF-8"))
-        sock_c.sendall(contents.encode("UTF-8"))
-    except:
-        print("failed to sendall()")
+        # HTTP Requestを受信してRequest Line/Header/MessageBodyに分解
+        line, header, body = myhttp.get_request(sock_c)
+        
+        print("request line: {}\n".format(line))
+        print("request header: {}\n".format(header))
+        print("message body: {}\n".format(body))
 
+        # Request LineをさらにRequest Method/Request URL/HTTP Versionに分解
+        req1 = line.split(" ")
+
+        # 今回はGETにのみ対応
+        if req1[0] == "GET":
+            filepath = BASE_DIR + req1[1]
+            try:
+                with open(filepath, "rb") as f:
+                    myhttp.send_response(sock_c, 200, "OK", f)
+            except:
+                # 404エラー
+                #myhttp.send_response(sock_c, 404, "Not Found", None)
+                with open(BASE_DIR + "/404.html", "rb") as f:
+                    myhttp.send_response(sock_c, 404, "Not Found", f)
+        else:
+            # GET以外のメソッドは501エラー
+            myhttp.send_response(sock_c, 501, "Not Implemented", None)
+    except:
+        # その他のエラーは500エラー
+        myhttp.send_response(sock_c, 500, "Internal Server Error", None)
+        
     sock_c.close()
 
 # 待ち受け用ソケットを閉じる
